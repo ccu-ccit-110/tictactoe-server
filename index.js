@@ -9,33 +9,70 @@ let rooms = {
 };
 
 io.on("connection", (socket) => {
-    socket.on('username', username => {
+    socket.status = 'free';
+
+    socket.on('create', ({username, roomname}) => {
+      if(rooms[roomname]) return socket.emit('error', '房間名稱重複');
       socket.username = username;
-      socket.emit('username', `"${username}"名稱設定完成`);
+      socket.join(roomname)
+      rooms[roomname] = {count: 1, step:[], host: username, guest: '', roomname, who:'host'};
+      socket.status = 'host';
+      socket.roomname = roomname;
+      socket.emit('create', rooms[roomname]);
     });
 
-    socket.on('create', roomname => {
-      let room = rooms[roomname];
-      if(room) return socket.emit('error', '房間名稱重複');
+    socket.on('join', ({username, roomname}) => {
+      if(!rooms[roomname]) return socket.emit('error', '房間尚未建立');
+      if(rooms[roomname].count === 2) return socket.emit('error', '房間已開始對戰');
+      socket.username = username;
       socket.join(roomname)
-      rooms[roomname] = {count: 1, step:[]};
-      socket.first = true;
+      rooms[roomname].count = 2;
+      rooms[roomname].guest = username;
+      socket.status = 'guest';
       socket.roomname = roomname;
-      socket.emit('create', `房間"${roomname}"建立完成，請將房間名稱告知對手`);
+      socket.emit('join', rooms[roomname]);
+      socket.to(roomname).emit('step', rooms[roomname]);
     });
 
     socket.on('leave', roomname => {
-      let room = rooms[roomname];
-      if(!room) return socket.emit('error', `你沒有加入"${roomname}"房間`);
-      socket.to(roomname).emit('leave');
-      delete rooms[roomname];
+      if(!rooms[roomname]) return socket.emit('error', `你沒有加入"${roomname}"房間`);
+      socket.leave(roomname)
+      socket.emit('leave', {username:socket.username});
+      socket.status = 'free';
+      if(rooms[roomname].count === 1 || socket.status === 'host') {
+        delete rooms[roomname];
+        io.in(roomname).socketsLeave(roomname);
+        socket.to(roomname).emit('leave', {username:socket.username});
+      } else {
+        rooms[roomname] = {
+          ...rooms[roomname],
+          count: 1,
+          step:[],
+          guest: '',
+        }
+        socket.to(roomname).emit('restart', rooms[roomname]);
+      }
     });
 
     socket.on("disconnect", (reason) => {
       let roomname = socket.roomname;
-      if(!roomname) return;
-      socket.to(roomname).emit('leave');
-      delete rooms[roomname];
+      if(!rooms[roomname]) return socket.emit('error', `你沒有加入"${roomname}"房間`);
+      socket.leave(roomname)
+      socket.emit('leave', {username:socket.username});
+      socket.status = 'free';
+      if(rooms[roomname].count === 1 || socket.status === 'host') {
+        delete rooms[roomname];
+        io.in(roomname).socketsLeave(roomname);
+        socket.to(roomname).emit('leave', {username:socket.username});
+      } else {
+        rooms[roomname] = { 
+          ...rooms[roomname],
+          count: 1,
+          step:[],
+          guest: '',
+        }
+        socket.to(roomname).emit('restart', rooms[roomname]);
+      }
     });
 });
 
