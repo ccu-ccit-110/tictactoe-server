@@ -24,6 +24,7 @@ io.on("connection", (socket) => {
     socket.on('join', ({username, roomname}) => {
       if(!rooms[roomname]) return socket.emit('error', '房間尚未建立');
       if(rooms[roomname].count === 2) return socket.emit('error', '房間已開始對戰');
+      if(rooms[roomname].host === username) return socket.emit('error', '名稱與房主重複');
       socket.username = username;
       socket.join(roomname)
       rooms[roomname].count = 2;
